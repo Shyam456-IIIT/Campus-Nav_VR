@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR-Based Campus Navigation System</title>
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: 'Inter', sans-serif; 
+            overflow: hidden; 
+        }
+        
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 999;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            max-width: 300px;
+            pointer-events: auto;
+        }
+
+        h2 { margin: 0 0 15px 0; font-size: 18px; color: #2c3e50; font-weight: 600; }
+        label { display: block; margin-bottom: 8px; font-size: 14px; color: #555; }
+        select {
+            width: 100%; padding: 10px; border-radius: 6px;
+            border: 1px solid #ddd; font-size: 15px; background-color: #fff;
+            color: #333; cursor: pointer; transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+        select:hover { border-color: #3498db; }
+        select:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2); }
+
+        @media screen and (max-width: 768px) and (orientation: landscape) {
+            #ui-container { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-container">
+        <h2>Campus Navigation</h2>
+        <label for="destination">Select Destination:</label>
+        <select id="destination">
+            <option value="">-- Choose a location --</option>
+            <option value="cse">CSE Lab (Open Class)</option>
+            <option value="library">Library</option>
+            <option value="hostel">Hostel</option>
+            <option value="admin">Admin Block</option>
+        </select>
+    </div>
+
+    <a-scene loading-screen="dotsColor: #3498db; backgroundColor: #ecf0f1">
+        
+        <!-- Environment Base -->
+        <a-sky color="#87CEEB"></a-sky> 
+        <a-plane position="0 0 0" rotation="-90 0 0" width="250" height="250" color="#557A46"></a-plane>
+
+        <!-- Player -->
+        <a-entity position="0 1.6 0" id="player">
+            <a-camera look-controls wasd-controls="acceleration: 20">
+                <a-cursor color="#fff" raycaster="objects: .building"></a-cursor>
+            </a-camera>
+        </a-entity>
+
+        <!-- Titles -->
+        <a-text 
+            value="Welcome to RGUKT Nuzvid VR Validation" 
+            position="0 5 -6" align="center" color="#2c3e50" width="10" font="kelsonsans">
+        </a-text>
+        <a-text 
+            id="instruction-text" 
+            value="Explore around or choose a destination!" 
+            position="0 4 -6" align="center" color="#e74c3c" width="6" font="kelsonsans">
+        </a-text>
+
+        <!-- Container for dynamically generated world -->
+        <a-entity id="world"></a-entity>
+
+        <!-- Navigation Arrows -->
+        <a-entity id="path-arrows" visible="false"></a-entity>
+
+    </a-scene>
+
+    <script>
+        const world = document.getElementById('world');
+        const buildingsData = [];
+
+        // --- 1. ENVIRONMENT GENERATION ---
+
+        function buildRoads() {
+            // Vertical Road
+            const vRoad = document.createElement('a-plane');
+            vRoad.setAttribute('position', '0 0.01 0');
+            vRoad.setAttribute('rotation', '-90 0 0');
+            vRoad.setAttribute('width', '8'); vRoad.setAttribute('height', '120');
+            vRoad.setAttribute('color', '#4a4a4a');
+            world.appendChild(vRoad);
+
+            // Horizontal Road
+            const hRoad = document.createElement('a-plane');
+            hRoad.setAttribute('position', '0 0.02 0');
+            hRoad.setAttribute('rotation', '-90 0 0');
+            hRoad.setAttribute('width', '120'); hRoad.setAttribute('height', '8');
+            hRoad.setAttribute('color', '#4a4a4a');
+            world.appendChild(hRoad);
+
+            // Dashed Road Lines
+            for(let i=-55; i<=55; i+=5) {
+                if(Math.abs(i) > 4) {
+                    let l1 = document.createElement('a-plane');
+                    l1.setAttribute('position', `0 0.03 ${i}`);
+                    l1.setAttribute('rotation', '-90 0 0');
+                    l1.setAttribute('width', '0.4'); l1.setAttribute('height', '2');
+                    l1.setAttribute('color', '#FFF');
+                    world.appendChild(l1);
+                    
+                    let l2 = document.createElement('a-plane');
+                    l2.setAttribute('position', `${i} 0.03 0`);
+                    l2.setAttribute('rotation', '-90 0 0');
+                    l2.setAttribute('width', '2'); l2.setAttribute('height', '0.4');
+                    l2.setAttribute('color', '#FFF');
+                    world.appendChild(l2);
+                }
+            }
+        }
+
+        function createTree(x, z) {
+            const tree = document.createElement('a-entity');
+            tree.setAttribute('position', `${x} 0 ${z}`);
+            
+            // Trunk
+            const trunk = document.createElement('a-cylinder');
+            trunk.setAttribute('color', '#5c4033'); 
+            trunk.setAttribute('height', '2.5'); trunk.setAttribute('radius', '0.4');
+            trunk.setAttribute('position', '0 1.25 0');
+            
+            // Foliage composed of 3 overlapping spheres for a "cloudy" organic look
+            const foliage = document.createElement('a-entity');
+            foliage.setAttribute('position', '0 2.5 0');
+            
+            const l1 = document.createElement('a-sphere');
+            l1.setAttribute('color', '#2d5a27'); l1.setAttribute('radius', '1.8');
+            
+            const l2 = document.createElement('a-sphere');
+            l2.setAttribute('color', '#3a7233'); l2.setAttribute('radius', '1.5'); l2.setAttribute('position', '0.8 0.5 0.5');
+
+            const l3 = document.createElement('a-sphere');
+            l3.setAttribute('color', '#254e20'); l3.setAttribute('radius', '1.5'); l3.setAttribute('position', '-0.8 0.5 -0.5');
+
+            foliage.appendChild(l1); foliage.appendChild(l2); foliage.appendChild(l3);
+            tree.appendChild(trunk); tree.appendChild(foliage);
+            world.appendChild(tree);
+        }
+
+        function buildForest() {
+            // Scatter 70 trees around
+            for(let i=0; i<70; i++) {
+                let tx = (Math.random() - 0.5) * 140;
+                let tz = (Math.random() - 0.5) * 140;
+                // Leave space for roads and central spawn area
+                if(Math.abs(tx) > 8 && Math.abs(tz) > 8 && (Math.abs(tx) + Math.abs(tz) > 25)) { 
+                    createTree(tx, tz);
+                }
+            }
+        }
+
+        // --- 2. BUILDINGS & CLASSROOM ---
+
+        function createStandardBuilding(id, name, color, x, z, width=12, depth=10, height=8) {
+            const b = document.createElement('a-entity');
+            b.classList.add('building'); b.id = id;
+            b.setAttribute('position', `${x} 0 ${z}`);
+            
+            // Main structure block
+            const block = document.createElement('a-box');
+            block.setAttribute('position', `0 ${height/2} 0`);
+            block.setAttribute('width', width); block.setAttribute('height', height); block.setAttribute('depth', depth);
+            block.setAttribute('color', color);
+            
+            // Door
+            const door = document.createElement('a-plane');
+            door.setAttribute('position', `0 1.5 ${depth/2 + 0.05}`);
+            door.setAttribute('width', '2.5'); door.setAttribute('height', '3');
+            door.setAttribute('color', '#34495e');
+            
+            // Decorative Window blocks
+            for(let wx=-1.5; wx<=1.5; wx+=3) {
+                let win = document.createElement('a-plane');
+                win.setAttribute('position', `${wx} 4 ${depth/2 + 0.05}`);
+                win.setAttribute('width', '1.5'); win.setAttribute('height', '1.5');
+                win.setAttribute('color', '#87CEFA'); 
+                b.appendChild(win);
+            }
+
+            // Building Name Sign
+            const title = document.createElement('a-text');
+            title.setAttribute('value', name);
+            title.setAttribute('position', `0 ${height + 1.5} ${depth/2}`);
+            title.setAttribute('align', 'center'); title.setAttribute('color', '#2c3e50'); title.setAttribute('scale', '5 5 5');
+            
+            b.appendChild(block); b.appendChild(door); b.appendChild(title);
+            world.appendChild(b);
+            buildingsData.push({id: id, pos: {x: x, z: z}});
+        }
+
+        function createDetailedClassroom(id, x, z) {
+            const cr = document.createElement('a-entity');
+            cr.classList.add('building'); cr.id = id;
+            cr.setAttribute('position', `${x} 0 ${z}`);
+            
+            // Floor
+            const floor = document.createElement('a-plane');
+            floor.setAttribute('position', '0 0.05 0'); floor.setAttribute('rotation', '-90 0 0');
+            floor.setAttribute('width', '12'); floor.setAttribute('height', '10'); floor.setAttribute('color', '#dcdde1');
+            cr.appendChild(floor);
+
+            // Walls (Back, Left, Right) - leaving Front open
+            const backWall = document.createElement('a-box');
+            backWall.setAttribute('position', '0 2.5 -5');
+            backWall.setAttribute('width', '12'); backWall.setAttribute('height', '5'); backWall.setAttribute('depth', '0.5');
+            backWall.setAttribute('color', '#ecf0f1');
+            cr.appendChild(backWall);
+            
+            const leftWall = document.createElement('a-box');
+            leftWall.setAttribute('position', '-5.75 2.5 0');
+            leftWall.setAttribute('width', '0.5'); leftWall.setAttribute('height', '5'); leftWall.setAttribute('depth', '10');
+            leftWall.setAttribute('color', '#bdc3c7');
+            cr.appendChild(leftWall);
+            
+            const rightWall = document.createElement('a-box');
+            rightWall.setAttribute('position', '5.75 2.5 0');
+            rightWall.setAttribute('width', '0.5'); rightWall.setAttribute('height', '5'); rightWall.setAttribute('depth', '10');
+            rightWall.setAttribute('color', '#bdc3c7');
+            cr.appendChild(rightWall);
+            
+            // Roof
+            const roof = document.createElement('a-box');
+            roof.setAttribute('position', '0 5.25 0');
+            roof.setAttribute('width', '12'); roof.setAttribute('height', '0.5'); roof.setAttribute('depth', '10.5');
+            roof.setAttribute('color', '#34495e');
+            cr.appendChild(roof);
+            
+            // Blackboard
+            const board = document.createElement('a-plane');
+            board.setAttribute('position', '0 2.5 -4.7');
+            board.setAttribute('width', '8'); board.setAttribute('height', '2.5'); board.setAttribute('color', '#2c3e50');
+            cr.appendChild(board);
+            
+            // Sign above classroom open entrance
+            const title = document.createElement('a-text');
+            title.setAttribute('value', 'CSE Lab');
+            title.setAttribute('position', '0 6.5 4');
+            title.setAttribute('align', 'center'); title.setAttribute('color', '#2c3e50'); title.setAttribute('scale', '4 4 4');
+            cr.appendChild(title);
+            
+            // Generate Benches & Students inside
+            const colors = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#1abc9c', '#ff7f50'];
+            for(let r=0; r<4; r++) { // 4 Rows
+                for(let c=0; c<2; c++) { // 2 Columns
+                    let bx = c * 5 - 2.5; // X position spacing
+                    let bz = r * 2 - 2;   // Z position spacing
+                    
+                    // Wooden Desk
+                    let desk = document.createElement('a-box');
+                    desk.setAttribute('position', `${bx} 0.9 ${bz}`);
+                    desk.setAttribute('width', '3'); desk.setAttribute('height', '0.1'); desk.setAttribute('depth', '0.6');
+                    desk.setAttribute('color', '#8b4513');
+                    cr.appendChild(desk);
+                    
+                    // Wooden Seat
+                    let seat = document.createElement('a-box');
+                    seat.setAttribute('position', `${bx} 0.45 ${bz + 0.7}`);
+                    seat.setAttribute('width', '3'); seat.setAttribute('height', '0.1'); seat.setAttribute('depth', '0.4');
+                    seat.setAttribute('color', '#a0522d');
+                    cr.appendChild(seat);
+                    
+                    // Students - Random Generation
+                    // About 70% chance a student is sitting here
+                    if(Math.random() > 0.3) {
+                        let s = document.createElement('a-entity');
+                        // Add slight random offset to sitting position for realism
+                        s.setAttribute('position', `${bx + (Math.random()-0.5)} 0.5 ${bz + 0.7}`);
+                        
+                        // Body (Cylinder)
+                        let body = document.createElement('a-cylinder');
+                        body.setAttribute('color', colors[Math.floor(Math.random() * colors.length)]);
+                        body.setAttribute('radius', '0.35'); body.setAttribute('height', '0.9');
+                        
+                        // Head (Sphere)
+                        let head = document.createElement('a-sphere');
+                        head.setAttribute('color', '#ffb6c1'); 
+                        head.setAttribute('radius', '0.25'); head.setAttribute('position', '0 0.65 0');
+                        
+                        s.appendChild(body); s.appendChild(head);
+                        cr.appendChild(s);
+                    }
+                }
+            }
+            
+            world.appendChild(cr);
+            buildingsData.push({id: id, pos: {x: x, z: z}});
+        }
+
+        // --- Execute Builders ---
+        buildRoads();
+        buildForest();
+        
+        // Quad Setup for Buildings
+        // CSE Open Classroom (Facing towards center/spawn)
+        createDetailedClassroom('cse', -25, -25);
+        // Library
+        createStandardBuilding('library', 'Library', '#e74c3c', 25, -25, 14, 12, 10);
+        // Hostel
+        createStandardBuilding('hostel', 'Hostel Boys & Girls', '#2ecc71', -25, 30, 18, 16, 15);
+        // Admin Block
+        createStandardBuilding('admin', 'Admin Block', '#f1c40f', 25, 30, 12, 12, 12);
+
+
+        // --- 3. DYNAMIC NAVIGATION LOGIC ---
+        const select = document.getElementById('destination');
+        const instructionText = document.getElementById('instruction-text');
+        const pathArrows = document.getElementById('path-arrows');
+
+        // Render Path Arrows into Container
+        const NUM_ARROWS = 12;
+        for (let i = 0; i < NUM_ARROWS; i++) {
+            let arrowContainer = document.createElement('a-entity');
+            arrowContainer.classList.add('nav-arrow');
+            
+            let cone = document.createElement('a-cone');
+            cone.setAttribute('color', '#e67e22');
+            cone.setAttribute('radius-bottom', '0.4'); cone.setAttribute('radius-top', '0'); cone.setAttribute('height', '1.4');
+            cone.setAttribute('rotation', '90 0 0'); // Point tip to -Z forward axis
+
+            cone.setAttribute('animation', 'property: position; dir: alternate; dur: 800; loop: true; from: 0 0.5 0; to: 0 1.3 0');
+
+            arrowContainer.appendChild(cone);
+            pathArrows.appendChild(arrowContainer);
+        }
+
+        // Handle Change Event
+        select.addEventListener('change', (e) => {
+            const targetId = e.target.value;
+
+            // Reset building highlight animation
+            document.querySelectorAll('.building').forEach(el => {
+                el.removeAttribute('animation__scale');
+                el.setAttribute('scale', '1 1 1');
+            });
+
+            if (!targetId) {
+                pathArrows.setAttribute('visible', 'false');
+                instructionText.setAttribute('value', 'Explore around or choose a destination!');
+                return;
+            }
+
+            pathArrows.setAttribute('visible', 'true');
+            const targetName = e.target.options[e.target.selectedIndex].text;
+            instructionText.setAttribute('value', `Follow the orange arrows to the ${targetName}`);
+
+            // Highlight Target
+            const targetEl = document.getElementById(targetId);
+            targetEl.setAttribute('animation__scale', 'property: scale; dir: alternate; dur: 800; loop: true; to: 1.1 1.1 1.1');
+
+            const targetData = buildingsData.find(b => b.id === targetId);
+            const targetPos = targetData.pos;
+            
+            // Get current player location so arrows start dynamically near them!
+            const playerPos = document.getElementById('player').getAttribute('position');
+            const startX = playerPos.x || 0; 
+            const startZ = playerPos.z || 0;
+            
+            const dx = targetPos.x - startX;
+            const dz = targetPos.z - startZ;
+            
+            const angleDeg = Math.atan2(dx, -dz) * (180 / Math.PI);
+
+            const arrowsList = document.querySelectorAll('.nav-arrow');
+            arrowsList.forEach((arrow, i) => {
+                const t = (i + 1) / (NUM_ARROWS + 1);
+                // Linear spread equation
+                const x = startX + dx * t;
+                const z = startZ + dz * t;
+                
+                arrow.setAttribute('position', `${x} 0 ${z}`);
+                arrow.setAttribute('rotation', `0 ${angleDeg} 0`);
+            });
+        });
+    </script>
+</body>
+</html>
